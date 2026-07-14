@@ -153,16 +153,26 @@ Prefer `api/openapi.yaml` as the cross-language source of truth for a new reposi
 - Pin generator versions in the owning Go or pnpm dependency configuration.
 - Mark generated files and never edit them manually.
 
+Pin the complete generation toolchain, not only the schema source. For Go 1.24+ tools, prefer the module-supported `tool` directive when the selected generator documents it. When replacing a generator, remove its old tool declaration and dependencies, regenerate all outputs, update handwritten interface implementations, then run `go mod tidy`.
+
+Inspect compatibility after using ecosystem scaffolds. A newly generated Vite application can select a TypeScript release outside an OpenAPI generator's peer range. Read package-manager warnings, select compatible versions deliberately, and pin the package manager with `packageManager` when the application owns its lockfile.
+
 Choose exactly one generated-code lifecycle:
 
-1. **Tracked outputs:** commit generated files and make `task gen:check` run generation followed by a clean-diff assertion.
+1. **Tracked outputs:** commit generated files and make `task gen:check` compare regeneration against the previous contents.
 2. **Untracked outputs:** ignore generated files and make every build, test, container build, and CI job generate them before consumption.
 
 Prefer tracked outputs when consumers should build without installing generators. Prefer untracked outputs when generation is fast, hermetic, and guaranteed by every entry point.
 
+Do not make a greenfield `gen:check` depend only on `git diff`: before the first commit, generated files are untracked and invisible to ordinary diffs. Snapshot every generated output to a temporary directory, regenerate, and compare the snapshots, or use another policy that works both before and after the initial commit. Include every output file when a generator splits types, server wiring, clients, or embedded specs.
+
+Test the real HTTP representation after framework behavior is applied. A router or runtime may add response envelopes, select non-200 success statuses, prefix routes, or normalize errors. Either configure the runtime to preserve the OpenAPI wire shape or model the transformation in the shared contract and clients. Never let Go generation and TypeScript generation agree with each other while both disagree with the running server.
+
 If Go types are intentionally authoritative, generate TypeScript from Go instead. Do not hand-maintain equivalent schemas on both sides except in a deliberately tiny prototype.
 
 ## Containers and deployment
+
+Read [containers.md](containers.md) for source synchronization, build networking, empty-mount diagnostics, and the runtime verification matrix.
 
 Use current Compose naming:
 
@@ -190,6 +200,12 @@ services:
 ```
 
 Use the smallest context that contains every required input. Add a root `.dockerignore` for root-context builds or a Dockerfile-specific ignore file for specialized contexts. Use multi-stage builds and render every supported file combination with `docker compose config`.
+
+Choose the local source-update model explicitly. Bind mounts are appropriate only when the Docker daemon has been shown to read the same host files as the CLI. For remote daemons, sandboxes, VMs, or uncertain mount namespaces, copy source into the development image and prefer Compose Watch. Keep ordinary `docker compose up` runnable from image-copied source, and expose `up --build --watch` through the stable development task.
+
+Configure dependency caches as named volumes below the application directory, such as `/go/pkg/mod`, a Go build cache, or `/app/node_modules`. Do not mount an empty volume or daemon-invisible bind over the entire application directory.
+
+Apply host networking to the build only when required by the environment. Express it through Compose `build.network` and matching `docker build --network` task invocations; do not change runtime networking as a substitute.
 
 ## CI affected paths
 
@@ -260,3 +276,7 @@ task check       Run the complete local/CI quality gate
 ```
 
 Make commands thin wrappers around native Go, pnpm, code-generation, and Compose commands. Make CI call the same entry points instead of maintaining a second command graph.
+
+Confirm that `task` is Go Task rather than another executable with the same name. Version output alone can be ambiguous; once the Taskfile exists, run `task --list` and a harmless task. Inside Taskfile YAML, use internal task dependencies. Inside multiline shell blocks, call native generator commands directly rather than recursively invoking an ambiguous external `task` binary.
+
+Run the aggregate command before handoff, but also validate the container entry points it cannot cover: render Compose from documented working directories, build every target, start the stack, inspect files and mounts inside containers, and smoke-test direct and proxied HTTP paths.

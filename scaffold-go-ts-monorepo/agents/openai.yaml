@@ -1,4 +1,4 @@
 interface:
   display_name: "Scaffold Go + TypeScript Monorepo"
-  short_description: "搭建最小可扩展的 Go 与 TypeScript monorepo"
-  default_prompt: "Use $scaffold-go-ts-monorepo to create a minimal Go API and TypeScript web monorepo with an OpenAPI contract and dependency-aware CI."
+  short_description: "搭建并排查可移植的 Go 与 TypeScript 单仓库"
+  default_prompt: "Use $scaffold-go-ts-monorepo to create or troubleshoot a minimal Go API and TypeScript web monorepo with an OpenAPI contract and portable Compose development."
