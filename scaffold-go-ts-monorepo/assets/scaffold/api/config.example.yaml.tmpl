@@ -1,0 +1,15 @@
+# Environment variables override every value in this file.
+server:
+  address: ":8080"
+  read_header_timeout: 5s
+  read_timeout: 15s
+  write_timeout: 15s
+  idle_timeout: 60s
+  shutdown_timeout: 10s
+  cors_allow_origins: "*"
+
+database:
+  dsn: ""
+  max_idle_conns: 5
+  max_open_conns: 25
+  conn_max_lifetime: 30m

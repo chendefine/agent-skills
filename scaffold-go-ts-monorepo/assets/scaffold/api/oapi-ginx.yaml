@@ -1,0 +1,11 @@
+package: api
+spec: ../../api/openapi.yaml
+output:
+  types: internal/api/types.gen.go
+  server: internal/api/server.gen.go
+generate_directive: "go tool oapi-ginx -c oapi-ginx.yaml"
+output_options:
+  generate_server: true
+  generate_client: false
+  skip_fmt: false
+  unwrap_envelope: true

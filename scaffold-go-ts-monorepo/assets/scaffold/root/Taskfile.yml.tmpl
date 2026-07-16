@@ -1,0 +1,176 @@
+version: "3"
+
+dotenv: [".env"]
+
+vars:
+  COMPOSE_BASE: deploy/compose/compose.yaml
+  COMPOSE_DEV: deploy/compose/compose.dev.yaml
+  COMPOSE_PROD: deploy/compose/compose.prod.yaml
+  DEV_PROJECT: __PROJECT_NAME__-dev
+  PROD_PROJECT: __PROJECT_NAME__-prod
+  API_IMAGE_REPOSITORY: __PROJECT_NAME__-api
+  WEB_IMAGE_REPOSITORY: __PROJECT_NAME__-web
+  IMAGE_ENV: deploy/compose/images.env
+  IMAGE_TAG_SCRIPT: deploy/compose/resolve-image-tag.sh
+  BUILD_NETWORK: __BUILD_NETWORK__
+
+tasks:
+  gen:
+    desc: Regenerate Go and TypeScript code from api/openapi.yaml
+    cmds:
+      - task: gen:api
+      - task: gen:web
+
+  gen:api:
+    internal: true
+    dir: apps/api
+    cmds:
+      - mkdir -p internal/api
+      - go tool oapi-ginx -c oapi-ginx.yaml
+
+  gen:web:
+    internal: true
+    dir: apps/web
+    cmds:
+      - pnpm run gen
+
+  gen:check:
+    desc: Verify tracked generated files match the OpenAPI contract
+    cmds:
+      - |
+        tmp_dir="$(mktemp -d)"
+        trap 'rm -rf "$tmp_dir"' EXIT
+        cp apps/api/internal/api/types.gen.go "$tmp_dir/types.gen.go"
+        cp apps/api/internal/api/server.gen.go "$tmp_dir/server.gen.go"
+        cp -R apps/web/src/api/generated "$tmp_dir/web-generated"
+        (cd apps/api && go tool oapi-ginx -c oapi-ginx.yaml)
+        (cd apps/web && pnpm run gen)
+        diff -u "$tmp_dir/types.gen.go" apps/api/internal/api/types.gen.go
+        diff -u "$tmp_dir/server.gen.go" apps/api/internal/api/server.gen.go
+        diff -ru "$tmp_dir/web-generated" apps/web/src/api/generated
+
+  lint:
+    desc: Run Go and TypeScript linters
+    cmds:
+      - task: lint:api
+      - task: lint:web
+  lint:api:
+    internal: true
+    dir: apps/api
+    cmds:
+      - test -z "$(gofmt -l .)"
+      - go vet ./...
+  lint:web:
+    internal: true
+    dir: apps/web
+    cmds:
+      - pnpm lint
+
+  test:
+    desc: Run API tests and web type checks
+    cmds:
+      - task: test:api
+      - task: test:web
+  test:api:
+    internal: true
+    dir: apps/api
+    cmds:
+      - go test ./... -count=1
+  test:web:
+    internal: true
+    dir: apps/web
+    cmds:
+      - pnpm test
+
+  build:
+    desc: Build both applications with native toolchains
+    cmds:
+      - task: build:api
+      - task: build:web
+  build:api:
+    internal: true
+    dir: apps/api
+    cmds:
+      - mkdir -p bin
+      - go build -o bin/server ./cmd/server
+  build:web:
+    internal: true
+    dir: apps/web
+    cmds:
+      - pnpm build
+
+  images:build:
+    desc: Build version-tagged production images and record the release
+    cmds:
+      - |
+        image_tag="$(sh "{{.IMAGE_TAG_SCRIPT}}")"
+        api_image="{{.API_IMAGE_REPOSITORY}}:$image_tag"
+        web_image="{{.WEB_IMAGE_REPOSITORY}}:$image_tag"
+        docker build --network="{{.BUILD_NETWORK}}" --target runtime --tag "$api_image" apps/api
+        docker build --network="{{.BUILD_NETWORK}}" --target runtime --tag "$web_image" apps/web
+        image_env_tmp="$(mktemp "{{.IMAGE_ENV}}.tmp.XXXXXX")"
+        trap 'rm -f "$image_env_tmp"' EXIT
+        printf 'IMAGE_TAG=%s\nAPI_IMAGE=%s\nWEB_IMAGE=%s\n' "$image_tag" "$api_image" "$web_image" >"$image_env_tmp"
+        mv "$image_env_tmp" "{{.IMAGE_ENV}}"
+  build:images:
+    desc: Compatibility alias for images:build
+    cmds:
+      - task: images:build
+
+  check:
+    desc: Run the complete local and CI quality gate
+    cmds:
+      - task: gen:check
+      - task: lint
+      - task: test
+      - task: build
+
+  dev:
+    desc: Start API and web with Compose Watch
+    cmds:
+      - docker compose --project-name "{{.DEV_PROJECT}}" --file "{{.COMPOSE_BASE}}" --file "{{.COMPOSE_DEV}}" up --build --watch
+  dev:down:
+    desc: Stop the development environment
+    cmds:
+      - docker compose --project-name "{{.DEV_PROJECT}}" --file "{{.COMPOSE_BASE}}" --file "{{.COMPOSE_DEV}}" down --remove-orphans
+
+  prod:up:
+    desc: Start production from images recorded by images:build
+    cmds:
+      - |
+        test -f "{{.IMAGE_ENV}}" || { echo "missing {{.IMAGE_ENV}}; run 'task images:build' first" >&2; exit 1; }
+        set -a; . "{{.IMAGE_ENV}}"; set +a
+        docker image inspect "$API_IMAGE" >/dev/null 2>&1 || { echo "missing image $API_IMAGE" >&2; exit 1; }
+        docker image inspect "$WEB_IMAGE" >/dev/null 2>&1 || { echo "missing image $WEB_IMAGE" >&2; exit 1; }
+        docker compose --project-name "{{.PROD_PROJECT}}" --file "{{.COMPOSE_BASE}}" --file "{{.COMPOSE_PROD}}" up --detach --wait --wait-timeout 60
+  prod:deploy:
+    desc: Build versioned images and deploy them
+    cmds:
+      - task: images:build
+      - task: prod:up
+  prod:down:
+    desc: Stop production
+    cmds:
+      - API_IMAGE=unused WEB_IMAGE=unused docker compose --project-name "{{.PROD_PROJECT}}" --file "{{.COMPOSE_BASE}}" --file "{{.COMPOSE_PROD}}" down --remove-orphans
+  prod:ps:
+    desc: Show production service status
+    cmds:
+      - API_IMAGE=unused WEB_IMAGE=unused docker compose --project-name "{{.PROD_PROJECT}}" --file "{{.COMPOSE_BASE}}" --file "{{.COMPOSE_PROD}}" ps
+  prod:logs:
+    desc: Follow production logs
+    cmds:
+      - API_IMAGE=unused WEB_IMAGE=unused docker compose --project-name "{{.PROD_PROJECT}}" --file "{{.COMPOSE_BASE}}" --file "{{.COMPOSE_PROD}}" logs --follow
+
+  compose:dev:config:
+    internal: true
+    cmds:
+      - docker compose --project-name "{{.DEV_PROJECT}}" --file "{{.COMPOSE_BASE}}" --file "{{.COMPOSE_DEV}}" config
+  compose:prod:config:
+    internal: true
+    cmds:
+      - API_IMAGE=config-test WEB_IMAGE=config-test docker compose --project-name "{{.PROD_PROJECT}}" --file "{{.COMPOSE_BASE}}" --file "{{.COMPOSE_PROD}}" config
+  compose:config:
+    desc: Render development and production Compose configurations
+    cmds:
+      - task: compose:dev:config
+      - task: compose:prod:config

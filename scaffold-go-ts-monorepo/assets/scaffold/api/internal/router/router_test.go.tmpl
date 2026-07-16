@@ -1,0 +1,46 @@
+package router
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	api "__GO_MODULE__/internal/api"
+	"__GO_MODULE__/internal/config"
+	"__GO_MODULE__/internal/handler"
+	"__GO_MODULE__/internal/service"
+)
+
+func TestHealth(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/health", nil)
+	response := httptest.NewRecorder()
+	New(handler.New(service.NewHealth(nil)), config.ServerConfig{}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d", response.Code)
+	}
+	var body responseEnvelope[api.HealthResponse]
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != 0 || body.Msg != "" || body.Data.Status != "ok" || body.Data.Service != "__PROJECT_NAME__-api" {
+		t.Fatalf("response = %#v", body)
+	}
+}
+
+func TestCORSPreflight(t *testing.T) {
+	request := httptest.NewRequest(http.MethodOptions, "/health", nil)
+	request.Header.Set("Origin", "https://admin.example.com")
+	response := httptest.NewRecorder()
+	cfg := config.ServerConfig{CORSAllowOrigins: []string{"https://admin.example.com"}}
+	New(handler.New(service.NewHealth(nil)), cfg).ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent || response.Header().Get("Access-Control-Allow-Origin") != "https://admin.example.com" {
+		t.Fatalf("status = %d, origin = %q", response.Code, response.Header().Get("Access-Control-Allow-Origin"))
+	}
+}
+
+type responseEnvelope[T any] struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+	Data T      `json:"data"`
+}

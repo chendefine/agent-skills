@@ -1,0 +1,15 @@
+package main
+
+import (
+	"context"
+	"testing"
+
+	"__GO_MODULE__/internal/service"
+)
+
+func TestHealthServiceWithoutDatabase(t *testing.T) {
+	result, err := service.NewHealth(nil).Check(context.Background())
+	if err != nil || result.Status != "ok" {
+		t.Fatalf("Check() = %#v, %v", result, err)
+	}
+}

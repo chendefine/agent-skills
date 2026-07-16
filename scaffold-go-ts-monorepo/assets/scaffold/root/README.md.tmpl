@@ -1,0 +1,34 @@
+# __PROJECT_TITLE__
+
+Go API 与 React/TypeScript Web 应用组成的单仓库。两端保留各自工具链，并由 `api/openapi.yaml` 共享 HTTP 合同。
+
+## 开始开发
+
+要求 Go __GO_VERSION__+、Node.js 24+、pnpm __PNPM_VERSION__+、Go Task 3+、Docker Compose。
+
+```bash
+cp .env.example .env
+task dev
+```
+
+Web 默认位于 <http://localhost:5173>，API 默认位于 <http://localhost:8080>。Compose Watch 负责同步源码；修改依赖 manifest 会触发镜像重建。
+
+## 稳定命令
+
+```bash
+task gen
+task gen:check
+task lint
+task test
+task build
+task check
+task images:build
+task prod:up
+task compose:config
+```
+
+Go API 使用 ginx 与 oapi-ginx；Web 使用 shadcn/ui 与 `@hey-api/openapi-ts`。生成文件应提交到 Git，且不得手工修改。
+
+API 配置优先级为内置默认值、配置文件、环境变量。`DATABASE_DSN` 为空时不会建立数据库连接；生产迁移应作为版本化文件放入 `apps/api/migrations`，不要使用 GORM AutoMigrate。
+
+`task images:build` 为 API 和 Web 构建同一版本 tag 的 runtime 镜像，并记录在 `deploy/compose/images.env`。生产 Compose 只使用这些已存在的本机镜像，不构建也不拉取。

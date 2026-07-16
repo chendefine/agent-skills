@@ -1,0 +1,185 @@
+package config
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/spf13/viper"
+)
+
+const (
+	defaultAddress           = ":8080"
+	defaultReadHeaderTimeout = 5 * time.Second
+	defaultReadTimeout       = 15 * time.Second
+	defaultWriteTimeout      = 15 * time.Second
+	defaultIdleTimeout       = 60 * time.Second
+	defaultShutdownTimeout   = 10 * time.Second
+)
+
+var defaultConfigFiles = []string{
+	"config.yaml", "config.yml", "config.toml", "config.json",
+	filepath.Join("config", "config.yaml"), filepath.Join("config", "config.yml"),
+	filepath.Join("config", "config.toml"), filepath.Join("config", "config.json"),
+	filepath.Join(string(filepath.Separator), "etc", "__PROJECT_NAME__", "config.yaml"),
+	filepath.Join(string(filepath.Separator), "etc", "__PROJECT_NAME__", "config.yml"),
+	filepath.Join(string(filepath.Separator), "etc", "__PROJECT_NAME__", "config.toml"),
+	filepath.Join(string(filepath.Separator), "etc", "__PROJECT_NAME__", "config.json"),
+}
+
+type Config struct {
+	ConfigFile string
+	Server     ServerConfig
+	Database   DatabaseConfig
+}
+
+type ServerConfig struct {
+	Address           string
+	ReadHeaderTimeout time.Duration
+	ReadTimeout       time.Duration
+	WriteTimeout      time.Duration
+	IdleTimeout       time.Duration
+	ShutdownTimeout   time.Duration
+	CORSAllowOrigins  []string
+}
+
+type DatabaseConfig struct {
+	DSN             string
+	MaxIdleConns    int
+	MaxOpenConns    int
+	ConnMaxLifetime time.Duration
+}
+
+// Load applies built-in defaults, then the first config file, then environment variables.
+func Load() (Config, error) {
+	v := viper.New()
+	setDefaults(v)
+	bindEnvironment(v)
+	configFile, err := readConfigFile(v)
+	if err != nil {
+		return Config{}, err
+	}
+	address := strings.TrimSpace(v.GetString("server.address"))
+	if port := strings.TrimSpace(v.GetString("server.port")); port != "" {
+		address = ":" + strings.TrimPrefix(port, ":")
+	}
+	cfg := Config{
+		ConfigFile: configFile,
+		Server: ServerConfig{
+			Address: address,
+			ReadHeaderTimeout: v.GetDuration("server.read_header_timeout"),
+			ReadTimeout: v.GetDuration("server.read_timeout"),
+			WriteTimeout: v.GetDuration("server.write_timeout"),
+			IdleTimeout: v.GetDuration("server.idle_timeout"),
+			ShutdownTimeout: v.GetDuration("server.shutdown_timeout"),
+			CORSAllowOrigins: splitCSV(v.GetString("server.cors_allow_origins")),
+		},
+		Database: DatabaseConfig{
+			DSN: strings.TrimSpace(v.GetString("database.dsn")),
+			MaxIdleConns: v.GetInt("database.max_idle_conns"),
+			MaxOpenConns: v.GetInt("database.max_open_conns"),
+			ConnMaxLifetime: v.GetDuration("database.conn_max_lifetime"),
+		},
+	}
+	if err := cfg.validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+func readConfigFile(v *viper.Viper) (string, error) {
+	if path := strings.TrimSpace(os.Getenv("CONFIG_FILE")); path != "" {
+		return readFile(v, path)
+	}
+	for _, path := range defaultConfigFiles {
+		_, err := os.Stat(path)
+		switch {
+		case err == nil:
+			return readFile(v, path)
+		case errors.Is(err, os.ErrNotExist):
+			continue
+		default:
+			return "", fmt.Errorf("inspect config file %q: %w", path, err)
+		}
+	}
+	return "", nil
+}
+
+func readFile(v *viper.Viper, path string) (string, error) {
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve config file %q: %w", path, err)
+	}
+	v.SetConfigFile(absolutePath)
+	if err := v.ReadInConfig(); err != nil {
+		return "", fmt.Errorf("read config file %q: %w", absolutePath, err)
+	}
+	return absolutePath, nil
+}
+
+func setDefaults(v *viper.Viper) {
+	v.SetDefault("server.address", defaultAddress)
+	v.SetDefault("server.read_header_timeout", defaultReadHeaderTimeout)
+	v.SetDefault("server.read_timeout", defaultReadTimeout)
+	v.SetDefault("server.write_timeout", defaultWriteTimeout)
+	v.SetDefault("server.idle_timeout", defaultIdleTimeout)
+	v.SetDefault("server.shutdown_timeout", defaultShutdownTimeout)
+	v.SetDefault("server.cors_allow_origins", "*")
+	v.SetDefault("database.max_idle_conns", 5)
+	v.SetDefault("database.max_open_conns", 25)
+	v.SetDefault("database.conn_max_lifetime", 30*time.Minute)
+}
+
+func bindEnvironment(v *viper.Viper) {
+	bindings := map[string][]string{
+		"server.address": {"SERVER_ADDRESS"}, "server.port": {"PORT"},
+		"server.read_header_timeout": {"SERVER_READ_HEADER_TIMEOUT"},
+		"server.read_timeout": {"SERVER_READ_TIMEOUT"}, "server.write_timeout": {"SERVER_WRITE_TIMEOUT"},
+		"server.idle_timeout": {"SERVER_IDLE_TIMEOUT"}, "server.shutdown_timeout": {"SERVER_SHUTDOWN_TIMEOUT"},
+		"server.cors_allow_origins": {"CORS_ALLOW_ORIGINS"}, "database.dsn": {"DATABASE_DSN"},
+		"database.max_idle_conns": {"DATABASE_MAX_IDLE_CONNS"}, "database.max_open_conns": {"DATABASE_MAX_OPEN_CONNS"},
+		"database.conn_max_lifetime": {"DATABASE_CONN_MAX_LIFETIME"},
+	}
+	for key, names := range bindings {
+		_ = v.BindEnv(append([]string{key}, names...)...)
+	}
+}
+
+func (c Config) validate() error {
+	if c.Server.Address == "" {
+		return fmt.Errorf("server address must not be empty")
+	}
+	for name, value := range map[string]time.Duration{
+		"read_header_timeout": c.Server.ReadHeaderTimeout, "read_timeout": c.Server.ReadTimeout,
+		"write_timeout": c.Server.WriteTimeout, "idle_timeout": c.Server.IdleTimeout,
+		"shutdown_timeout": c.Server.ShutdownTimeout,
+	} {
+		if value <= 0 {
+			return fmt.Errorf("server.%s must be positive", name)
+		}
+	}
+	if c.Database.MaxIdleConns < 0 || c.Database.MaxOpenConns < 0 {
+		return fmt.Errorf("database connection limits must not be negative")
+	}
+	if c.Database.MaxOpenConns > 0 && c.Database.MaxIdleConns > c.Database.MaxOpenConns {
+		return fmt.Errorf("database.max_idle_conns must not exceed database.max_open_conns")
+	}
+	if c.Database.ConnMaxLifetime < 0 {
+		return fmt.Errorf("database.conn_max_lifetime must not be negative")
+	}
+	return nil
+}
+
+func splitCSV(value string) []string {
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
+}

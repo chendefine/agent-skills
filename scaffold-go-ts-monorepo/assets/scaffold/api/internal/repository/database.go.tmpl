@@ -1,0 +1,60 @@
+package repository
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+
+	"__GO_MODULE__/internal/config"
+)
+
+type Database struct {
+	gorm *gorm.DB
+	sql  *sql.DB
+}
+
+func OpenPostgres(ctx context.Context, cfg config.DatabaseConfig) (*Database, error) {
+	if cfg.DSN == "" {
+		return nil, nil
+	}
+	db, err := gorm.Open(postgres.Open(cfg.DSN), &gorm.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("open postgres: %w", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("access postgres connection pool: %w", err)
+	}
+	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
+	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
+	sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+	if err := sqlDB.PingContext(ctx); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("ping postgres: %w", err)
+	}
+	return &Database{gorm: db, sql: sqlDB}, nil
+}
+
+func (d *Database) GORM() *gorm.DB {
+	if d == nil {
+		return nil
+	}
+	return d.gorm
+}
+
+func (d *Database) Ping(ctx context.Context) error {
+	if d == nil || d.sql == nil {
+		return nil
+	}
+	return d.sql.PingContext(ctx)
+}
+
+func (d *Database) Close() error {
+	if d == nil || d.sql == nil {
+		return nil
+	}
+	return d.sql.Close()
+}

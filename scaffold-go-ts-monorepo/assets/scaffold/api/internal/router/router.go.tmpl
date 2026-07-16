@@ -1,0 +1,24 @@
+package router
+
+import (
+	"net/http"
+
+	"github.com/chendefine/ginx"
+	"github.com/gin-gonic/gin"
+
+	api "__GO_MODULE__/internal/api"
+	"__GO_MODULE__/internal/config"
+	mw "__GO_MODULE__/internal/middleware"
+)
+
+func New(server api.ServerInterface, cfg config.ServerConfig) http.Handler {
+	r := gin.New()
+	r.Use(mw.RequestLogger(), mw.Recovery(), mw.CORS(cfg.CORSAllowOrigins))
+	engine := ginx.New(
+		ginx.WithStrictJSONBody(true),
+		ginx.WithExposeInternalError(false),
+		ginx.WithInternalErrorMessage("internal error"),
+	)
+	api.RegisterRoutes(engine.Wrap(r), server)
+	return r
+}

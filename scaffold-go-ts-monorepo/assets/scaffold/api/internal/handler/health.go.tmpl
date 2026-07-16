@@ -1,0 +1,24 @@
+package handler
+
+import (
+	"context"
+
+	api "__GO_MODULE__/internal/api"
+	"__GO_MODULE__/internal/service"
+)
+
+type Handler struct {
+	health *service.Health
+}
+
+var _ api.ServerInterface = (*Handler)(nil)
+
+func New(health *service.Health) *Handler { return &Handler{health: health} }
+
+func (h *Handler) GetHealth(ctx context.Context, _ *api.GetHealthReq) (*api.GetHealthRsp, error) {
+	result, err := h.health.Check(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &api.GetHealthRsp{Service: result.Service, Status: result.Status}, nil
+}

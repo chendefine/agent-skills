@@ -1,0 +1,16 @@
+services:
+  api:
+    environment:
+      PORT: "8080"
+      DATABASE_DSN: "${DATABASE_DSN:-}"
+      CORS_ALLOW_ORIGINS: "${CORS_ALLOW_ORIGINS:-*}"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    depends_on:
+      api:
+        condition: service_healthy

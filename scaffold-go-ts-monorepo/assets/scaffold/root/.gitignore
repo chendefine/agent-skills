@@ -1,0 +1,12 @@
+.DS_Store
+.env
+.idea/
+.vscode/
+apps/api/bin/
+apps/api/config.yaml
+apps/api/config.yml
+apps/api/config.toml
+apps/api/config.json
+apps/web/dist/
+apps/web/node_modules/
+deploy/compose/images.env

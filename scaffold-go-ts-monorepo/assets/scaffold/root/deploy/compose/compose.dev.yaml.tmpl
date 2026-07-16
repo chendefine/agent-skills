@@ -1,0 +1,55 @@
+services:
+  api:
+    build:
+      context: ../../apps/api
+      dockerfile: Dockerfile
+      target: development
+      network: __BUILD_NETWORK__
+    ports:
+      - "${API_PORT:-8080}:8080"
+    healthcheck:
+      start_period: 60s
+    volumes:
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    develop:
+      watch:
+        - action: sync+restart
+          path: ../../apps/api
+          target: /app
+          initial_sync: true
+          ignore: [bin/, go.mod, go.sum]
+        - action: rebuild
+          path: ../../apps/api/go.mod
+        - action: rebuild
+          path: ../../apps/api/go.sum
+
+  web:
+    build:
+      context: ../../apps/web
+      dockerfile: Dockerfile
+      target: development
+      network: __BUILD_NETWORK__
+    command: ["pnpm", "dev", "--host", "0.0.0.0"]
+    environment:
+      VITE_API_PROXY_TARGET: http://api:8080
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    volumes:
+      - web-node-modules:/app/node_modules
+    develop:
+      watch:
+        - action: sync
+          path: ../../apps/web
+          target: /app
+          initial_sync: true
+          ignore: [dist/, node_modules/, package.json, pnpm-lock.yaml]
+        - action: rebuild
+          path: ../../apps/web/package.json
+        - action: rebuild
+          path: ../../apps/web/pnpm-lock.yaml
+
+volumes:
+  go-mod-cache:
+  go-build-cache:
+  web-node-modules:

@@ -1,0 +1,71 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"__GO_MODULE__/internal/config"
+	"__GO_MODULE__/internal/handler"
+	"__GO_MODULE__/internal/repository"
+	"__GO_MODULE__/internal/router"
+	"__GO_MODULE__/internal/service"
+)
+
+func main() {
+	if err := run(); err != nil {
+		slog.Error("API stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	database, err := repository.OpenPostgres(context.Background(), cfg.Database)
+	if err != nil {
+		return err
+	}
+	if database != nil {
+		defer func() {
+			if err := database.Close(); err != nil {
+				slog.Error("close database", "error", err)
+			}
+		}()
+	}
+	var healthChecker service.HealthChecker
+	if database != nil {
+		healthChecker = database
+	}
+	healthService := service.NewHealth(healthChecker)
+	server := &http.Server{
+		Addr: cfg.Server.Address, Handler: router.New(handler.New(healthService), cfg.Server),
+		ReadHeaderTimeout: cfg.Server.ReadHeaderTimeout, ReadTimeout: cfg.Server.ReadTimeout,
+		WriteTimeout: cfg.Server.WriteTimeout, IdleTimeout: cfg.Server.IdleTimeout,
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	serverErrors := make(chan error, 1)
+	go func() {
+		slog.Info("API listening", "address", server.Addr)
+		serverErrors <- server.ListenAndServe()
+	}()
+	select {
+	case err := <-serverErrors:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
+		defer cancel()
+		return server.Shutdown(shutdownCtx)
+	}
+}

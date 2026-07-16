@@ -1,0 +1,29 @@
+package service
+
+import (
+	"context"
+	"fmt"
+
+	"__GO_MODULE__/internal/dto"
+)
+
+const serviceName = "__PROJECT_NAME__-api"
+
+type HealthChecker interface {
+	Ping(context.Context) error
+}
+
+type Health struct {
+	checker HealthChecker
+}
+
+func NewHealth(checker HealthChecker) *Health { return &Health{checker: checker} }
+
+func (s *Health) Check(ctx context.Context) (dto.Health, error) {
+	if s.checker != nil {
+		if err := s.checker.Ping(ctx); err != nil {
+			return dto.Health{}, fmt.Errorf("database health check: %w", err)
+		}
+	}
+	return dto.Health{Service: serviceName, Status: "ok"}, nil
+}

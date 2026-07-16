@@ -1,0 +1,52 @@
+openapi: 3.0.3
+info:
+  title: __PROJECT_TITLE__ API
+  version: 0.1.0
+  description: Shared contract for the __PROJECT_TITLE__ web application and API.
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Check whether the API is ready to serve requests
+      responses:
+        "200":
+          description: The API is healthy
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ResponseEnvelope"
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/HealthResponse"
+components:
+  schemas:
+    ResponseEnvelope:
+      description: Reusable ginx response envelope; operations narrow data with allOf.
+      type: object
+      required: [code, msg, data]
+      properties:
+        code:
+          type: integer
+          description: Zero for success; non-zero for an error.
+          example: 0
+        msg:
+          type: string
+          description: Empty for success; contains the error message on failure.
+          example: ""
+        data:
+          nullable: true
+          description: Operation-specific payload, or null on failure.
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status, service]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        service:
+          type: string
+          example: __PROJECT_NAME__-api

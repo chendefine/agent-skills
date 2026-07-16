@@ -1,0 +1,48 @@
+import { useEffect, useState } from 'react'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { getHealth, unwrap } from '@/api/client'
+
+function App() {
+  const [status, setStatus] = useState('Connecting to API…')
+  const [healthy, setHealthy] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    unwrap(getHealth())
+      .then((health) => {
+        if (active) {
+          setHealthy(true)
+          setStatus(`${health.service} is ready`)
+        }
+      })
+      .catch(() => {
+        if (active) setStatus('API is unavailable')
+      })
+    return () => { active = false }
+  }, [])
+
+  return (
+    <main className="flex min-h-svh items-center justify-center bg-muted/40 p-6">
+      <Card className="w-full max-w-xl">
+        <CardHeader>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <Badge variant={healthy ? 'default' : 'secondary'}>__PROJECT_NAME__</Badge>
+            <span className="text-xs text-muted-foreground">Go + React + OpenAPI</span>
+          </div>
+          <CardTitle className="text-3xl">__PROJECT_TITLE__ is ready</CardTitle>
+          <CardDescription>
+            The web application and ginx API share one generated HTTP contract.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-lg border bg-background p-4 text-sm" role="status">
+            {status}
+          </div>
+        </CardContent>
+      </Card>
+    </main>
+  )
+}
+
+export default App

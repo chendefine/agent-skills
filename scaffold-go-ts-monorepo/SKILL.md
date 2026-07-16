@@ -1,6 +1,6 @@
 ---
 name: scaffold-go-ts-monorepo
-description: Scaffold, reorganize, or troubleshoot a polyglot monorepo with a Go API and TypeScript web application, including app boundaries, OpenAPI code generation, optional pnpm workspaces, unified Go Task commands, portable Docker Compose development with bind mounts or Compose Watch, explicit build contexts and networking, and affected-path Woodpecker CI. Use when Codex needs to create a Go + React/Vite repository, simplify or scale an existing full-stack monorepo, establish a shared API contract, or implement and debug its development, container, and CI conventions.
+description: Reproducibly scaffold, reorganize, or troubleshoot a polyglot monorepo with a ginx Go API and React/TypeScript web application, including official Vite and shadcn initialization, OpenAPI code generation, unified Go Task commands, portable Docker Compose Watch development, versioned runtime images, single-host production Compose, optional pnpm workspaces, and affected-path CI. Use when Codex needs to create a Go + React/Vite repository, reproduce the bundled full-stack baseline, simplify or scale an existing monorepo, establish a shared API contract, or debug its development and container conventions.
 ---
 
 # Scaffold Go + TypeScript Monorepo
@@ -12,6 +12,20 @@ Build one polyglot monorepo with separate TypeScript and Go toolchain domains. C
 Read [references/architecture.md](references/architecture.md) before proposing a tree or changing files. Start from its minimal shape, then add only the scale-out branches required by the user or existing repository.
 
 Read [references/containers.md](references/containers.md) before creating, changing, or debugging Dockerfiles, Compose configuration, source synchronization, or container build networking.
+
+Read [references/scaffolding.md](references/scaffolding.md) before running or changing the bundled greenfield initializer, its parameters, version pins, or template assets.
+
+## Scaffold a new repository
+
+Prefer the bundled initializer for a new, absent target directory:
+
+```bash
+python scripts/scaffold.py --target /path/to/new-project --go-module github.com/acme/new-project/apps/api
+```
+
+Run `--dry-run` first when inputs or prerequisites are uncertain. Let the script invoke official Vite and shadcn CLIs, generate manifests and lockfiles, render the reusable backend and deployment assets, generate both OpenAPI consumers, and run `task check`. Do not replace those steps with copied frontend scaffolds or fabricated dependency state.
+
+Use the manual workflow below for an existing repository, a non-default topology, or a partial reorganization.
 
 ## Follow the workflow
 
@@ -32,6 +46,7 @@ Read [references/containers.md](references/containers.md) before creating, chang
    - Use Compose for local development by default. Add production Compose overrides only for an explicitly single-host Compose deployment; otherwise follow the selected deployment platform.
    - Choose a source-update model deliberately. Prefer image-copied source plus Compose Watch when the daemon may run remotely or in a different mount namespace; use bind mounts only after proving the daemon sees the same files.
    - Retain the repository's CI provider. Use Woodpecker defaults only when Woodpecker is selected or already present.
+   - For the bundled full baseline, retain its optional PostgreSQL boundary and single-host production Compose unless the user requests a smaller profile. Keep business schemas, authentication, and business UI out of the scaffold.
 
 3. Design the smallest useful tree.
    - Include a file or directory only when it has an immediate owner and role.
@@ -44,6 +59,7 @@ Read [references/containers.md](references/containers.md) before creating, chang
    - Create the Go module, executable entry point, and only the internal packages required by current behavior.
    - Pin Go generators with the module's supported tool mechanism, remove superseded tool declarations, and run `go mod tidy` after runtime imports and generated code have settled.
    - Create the TypeScript application with feature-based business code and app-local generated API code.
+   - Create greenfield React code with the official Vite CLI, then initialize shadcn with its official CLI. Treat generated shadcn components as source, but do not bundle or copy a stale Vite/shadcn application skeleton into the skill.
    - Add stable root task commands after native Go and TypeScript commands work.
    - Make `gen:check` independent of an existing Git commit. In a new repository, snapshot tracked outputs before regeneration and compare every generated file afterward; plain `git diff` does not detect untracked output.
    - Put each primary Dockerfile beside its application, then select build context from the files that its `COPY` instructions require and add matching ignore rules.
@@ -94,4 +110,4 @@ Read [references/containers.md](references/containers.md) before creating, chang
 
 ## Hand off the result
 
-Summarize the minimal versus optional branches selected, generated-code lifecycle, source synchronization model, build contexts and networking, CI affected inputs, entry commands, and validation results. Identify only unresolved external values such as module path, registry, domains, credentials, or daemon path-sharing requirements.
+Summarize whether the bundled initializer or manual workflow was used, the selected parameters and version overrides, generated-code lifecycle, source synchronization model, build contexts and networking, entry commands, and validation results. Identify only unresolved external values such as module path, registry, domains, credentials, or daemon path-sharing requirements.

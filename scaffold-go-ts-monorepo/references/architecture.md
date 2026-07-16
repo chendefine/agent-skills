@@ -65,6 +65,8 @@ myapp/
 
 Omit any empty optional branch.
 
+For a greenfield request that asks to reproduce the bundled operational baseline rather than the minimal tree, use `scripts/scaffold.py` and read [scaffolding.md](scaffolding.md). That baseline deliberately includes optional PostgreSQL/GORM wiring and single-host production Compose while keeping business schema and authentication absent.
+
 ## Scale-out branches
 
 Add a root pnpm workspace when multiple TypeScript packages or root-owned JavaScript tools need coordinated installation:
@@ -119,6 +121,8 @@ apps/web/src/
 
 Keep the generated transport schema/client in `api/generated` and authentication, base URL, retries, and error normalization in the handwritten `api/client.ts`. Treat generated shadcn components as repository source. Follow the installed framework versions instead of assuming historical Tailwind or shadcn configuration.
 
+For greenfield scaffolding, create the Vite React/TypeScript application and initialize shadcn with their official CLIs before adding handwritten API integration. Do not copy a previously generated frontend skeleton, dependency manifest, lockfile, or shadcn component into reusable assets.
+
 ## Go API boundary
 
 Start with the stable Go boundaries and add packages only as behavior requires them:
@@ -147,7 +151,7 @@ Do not create all layers preemptively. Keep HTTP concerns out of persistence cod
 
 Prefer `api/openapi.yaml` as the cross-language source of truth for a new repository:
 
-- Generate Go interfaces and transport types into `apps/api/internal/api/generated`.
+- Generate Go interfaces and transport types into `apps/api/internal/api/{types,server}.gen.go`.
 - Generate TypeScript types and a typed client into `apps/web/src/api/generated` for a single consumer.
 - Generate into `packages/api-client` only when multiple TypeScript consumers import it.
 - Pin generator versions in the owning Go or pnpm dependency configuration.
