@@ -9,6 +9,7 @@ Use this reference to choose a portable development loop, configure build networ
 - [Use Compose Watch portably](#use-compose-watch-portably)
 - [Configure build networking](#configure-build-networking)
 - [Diagnose an empty source mount](#diagnose-an-empty-source-mount)
+- [Diagnose stale dependency volumes](#diagnose-stale-dependency-volumes)
 - [Verify the actual stack](#verify-the-actual-stack)
 
 ## Separate build and runtime concerns
@@ -88,6 +89,8 @@ services:
 
 Use `sync+restart` for a Go process without an in-process reloader and `sync` for a Vite development server. Rebuild when dependency manifests change. Confirm the image contains `stat`, `mkdir`, and `rmdir`, and ensure the container user can write to the sync target.
 
+Use `COMPOSE_MENU=false` for non-interactive Watch verification. Do not combine `up --watch` with `--no-build`; supported Compose releases reject that option pair. Judge a synchronized restart by the new container start time and a subsequent health check rather than by the old process's exit code.
+
 Expose the watch loop through a stable command such as:
 
 ```yaml
@@ -98,6 +101,8 @@ tasks:
 ```
 
 Keep ordinary `docker compose up` functional without watch; it should run the source already copied into the image.
+
+Generate `task verify:containers` for the bundled baseline. Let it allocate host ports dynamically, verify direct and proxied health, exercise Watch with temporary source probes, build both runtime targets, start production Compose, and clean containers in a trap without deleting named dependency caches.
 
 ## Configure build networking
 
@@ -116,6 +121,8 @@ docker build --network=host --target runtime -t my-api:local apps/api
 ```
 
 Do not replace build networking with runtime `network_mode: host`. Do not bake environment-specific third-party proxies into the repository merely to make one validation pass. Retry a suspected transient failure, identify the exact failing download layer, then either use the approved build network or report the external prerequisite.
+
+For the bundled baseline, expose one root `.env` value named `BUILD_NETWORK`. Apply it to Compose development builds, runtime `docker build` commands, and `task verify:containers`. Keep the scaffold parameter's selected value as the generated default while allowing an explicit local override after diagnosing the failing dependency layer.
 
 ## Diagnose an empty source mount
 
@@ -143,6 +150,19 @@ When a process reports that `go.mod`, `package.json`, or another expected file i
 
 If Compose renders the intended absolute source and `docker inspect` reports that source, but the target is empty, the daemon and CLI do not share the same filesystem view. Common causes include remote Docker contexts, development sandboxes, Docker Desktop/VM sharing, and separate mount namespaces. Fix daemon path sharing or remove the source bind and use image-copied source plus Compose Watch.
 
+## Diagnose stale dependency volumes
+
+Treat a named dependency cache separately from source and image contents. A previously created Compose project can retain a volume whose Go modules or pnpm links no longer match the current `go.sum` or lockfile. Typical symptoms are runtime dependency downloads, old module versions, or a package missing only after the cache volume is mounted.
+
+1. Inspect the development image without Compose volumes and assert that current dependencies exist. If the image is wrong, rebuild it and diagnose its dependency layer; do not clear a volume to hide an incorrect image.
+2. Inspect the failed container's mounts and the named volumes' creation timestamps with `docker volume inspect`.
+3. Inspect cache contents using an already available project image when possible. Avoid pulling an unrelated diagnostic image.
+4. Compare the cached versions with the current `go.sum` or `pnpm-lock.yaml`. Do not infer staleness from age alone.
+5. After confirming that the volumes belong only to the disposable development project, run `task dev:reset` or the equivalent project-scoped `docker compose down --volumes --remove-orphans` command.
+6. Rebuild and start again, then assert both manifest sentinels and representative current dependencies inside the running containers.
+
+Never delete shared or production volumes as a generic dependency fix. Do not change Dockerfiles, runtime networking, or dependency proxies until image-versus-volume inspection identifies the faulty layer.
+
 ## Verify the actual stack
 
 Validate more than syntax:
@@ -152,9 +172,12 @@ Validate more than syntax:
 3. Start from a clean project state with the exact documented command.
 4. Wait for API health before evaluating dependent services.
 5. Inspect `WorkingDir`, `Cmd`, and `Mounts`; assert that `go.mod` and `package.json` exist inside their containers.
-6. Call the API directly and through the web development or production proxy.
-7. Start watch mode and confirm it reports that watching is enabled.
-8. Change a harmless source file when practical and confirm sync or restart behavior; confirm manifest changes select rebuild.
-9. Build runtime images and smoke-test them. Publish to a dynamically assigned host port when fixed ports may already be occupied.
+6. Assert representative current dependencies inside the image and the mounted cache; diagnose and reset only stale project-scoped volumes when they differ.
+7. Call the API directly and through the web development or production proxy.
+8. Start watch mode and confirm it reports that watching is enabled.
+9. Change a harmless source file when practical and confirm sync or restart behavior; confirm manifest changes select rebuild.
+10. Build runtime images and smoke-test them. Publish to a dynamically assigned host port when fixed ports may already be occupied.
+
+Prefer the generated `task verify:containers` implementation for this matrix instead of recreating an ad hoc sequence. Keep `task dev` as the interactive developer loop and do not add verification-only flags to it.
 
 If `--force-recreate` reports an old container identifier while newly created containers become healthy, inspect `docker compose ps --all` and logs before changing code. Clean the project with `docker compose down --remove-orphans`, then reproduce from a clean state to separate a Compose lifecycle race from an application failure.

@@ -7,11 +7,17 @@ Go API 与 React/TypeScript Web 应用组成的单仓库。两端保留各自工
 要求 Go __GO_VERSION__+、Node.js 24+、pnpm __PNPM_VERSION__+、Go Task 3+、Docker Compose。
 
 ```bash
-cp .env.example .env
+task env:init
 task dev
 ```
 
 Web 默认位于 <http://localhost:5173>，API 默认位于 <http://localhost:8080>。Compose Watch 负责同步源码；修改依赖 manifest 会触发镜像重建。
+
+Compose 配置统一来自仓库根目录 `.env`；不要把项目配置放在 `deploy/compose/.env`。如需从 `deploy/compose` 目录直接调用 Compose，请显式传入 `--env-file ../../.env`。
+
+__BUILD_NETWORK_NOTICE__
+
+仅在确认当前开发项目的命名依赖卷已陈旧时运行 `task dev:reset`；它会删除开发容器及 Go/pnpm 缓存卷，随后需要重新构建。
 
 ## 稳定命令
 
@@ -22,12 +28,15 @@ task lint
 task test
 task build
 task check
+task verify:containers
 task images:build
 task prod:up
 task compose:config
 ```
 
 Go API 使用 ginx 与 oapi-ginx；Web 使用 shadcn/ui 与 `@hey-api/openapi-ts`。生成文件应提交到 Git，且不得手工修改。
+
+__GO_MODULE_NOTICE__
 
 API 配置优先级为内置默认值、配置文件、环境变量。`DATABASE_DSN` 为空时不会建立数据库连接；生产迁移应作为版本化文件放入 `apps/api/migrations`，不要使用 GORM AutoMigrate。
 

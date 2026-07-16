@@ -12,9 +12,16 @@ vars:
   WEB_IMAGE_REPOSITORY: __PROJECT_NAME__-web
   IMAGE_ENV: deploy/compose/images.env
   IMAGE_TAG_SCRIPT: deploy/compose/resolve-image-tag.sh
-  BUILD_NETWORK: __BUILD_NETWORK__
+  DEFAULT_BUILD_NETWORK: __BUILD_NETWORK__
 
 tasks:
+  env:init:
+    desc: Create the repository-root .env without overwriting an existing file
+    status:
+      - test -f .env
+    cmds:
+      - cp .env.example .env
+
   gen:
     desc: Regenerate Go and TypeScript code from api/openapi.yaml
     cmds:
@@ -106,8 +113,9 @@ tasks:
         image_tag="$(sh "{{.IMAGE_TAG_SCRIPT}}")"
         api_image="{{.API_IMAGE_REPOSITORY}}:$image_tag"
         web_image="{{.WEB_IMAGE_REPOSITORY}}:$image_tag"
-        docker build --network="{{.BUILD_NETWORK}}" --target runtime --tag "$api_image" apps/api
-        docker build --network="{{.BUILD_NETWORK}}" --target runtime --tag "$web_image" apps/web
+        build_network="${BUILD_NETWORK:-{{.DEFAULT_BUILD_NETWORK}}}"
+        docker build --network="$build_network" --target runtime --tag "$api_image" apps/api
+        docker build --network="$build_network" --target runtime --tag "$web_image" apps/web
         image_env_tmp="$(mktemp "{{.IMAGE_ENV}}.tmp.XXXXXX")"
         trap 'rm -f "$image_env_tmp"' EXIT
         printf 'IMAGE_TAG=%s\nAPI_IMAGE=%s\nWEB_IMAGE=%s\n' "$image_tag" "$api_image" "$web_image" >"$image_env_tmp"
@@ -133,6 +141,15 @@ tasks:
     desc: Stop the development environment
     cmds:
       - docker compose --project-name "{{.DEV_PROJECT}}" --file "{{.COMPOSE_BASE}}" --file "{{.COMPOSE_DEV}}" down --remove-orphans
+  dev:reset:
+    desc: Remove the development environment and its named dependency caches
+    cmds:
+      - docker compose --project-name "{{.DEV_PROJECT}}" --file "{{.COMPOSE_BASE}}" --file "{{.COMPOSE_DEV}}" down --volumes --remove-orphans
+
+  verify:containers:
+    desc: Build and smoke-test development, Watch, and production containers on dynamic ports
+    cmds:
+      - sh deploy/compose/verify-containers.sh
 
   prod:up:
     desc: Start production from images recorded by images:build

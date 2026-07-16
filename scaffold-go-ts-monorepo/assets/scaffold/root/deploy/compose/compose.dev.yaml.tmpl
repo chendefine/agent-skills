@@ -4,7 +4,7 @@ services:
       context: ../../apps/api
       dockerfile: Dockerfile
       target: development
-      network: __BUILD_NETWORK__
+      network: "${BUILD_NETWORK:-__BUILD_NETWORK__}"
     ports:
       - "${API_PORT:-8080}:8080"
     healthcheck:
@@ -29,7 +29,7 @@ services:
       context: ../../apps/web
       dockerfile: Dockerfile
       target: development
-      network: __BUILD_NETWORK__
+      network: "${BUILD_NETWORK:-__BUILD_NETWORK__}"
     command: ["pnpm", "dev", "--host", "0.0.0.0"]
     environment:
       VITE_API_PROXY_TARGET: http://api:8080

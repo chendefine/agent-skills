@@ -1,0 +1,140 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
+cd "$repo_root"
+
+dev_project="__PROJECT_NAME__-verify-dev"
+prod_project="__PROJECT_NAME__-verify-prod"
+api_image="__PROJECT_NAME__-api:container-verify"
+web_image="__PROJECT_NAME__-web:container-verify"
+compose_base="deploy/compose/compose.yaml"
+compose_dev="deploy/compose/compose.dev.yaml"
+compose_prod="deploy/compose/compose.prod.yaml"
+watch_log="$(mktemp)"
+api_probe="apps/api/.compose-watch-probe"
+web_probe="apps/web/.compose-watch-probe"
+watch_pid=""
+build_network="${BUILD_NETWORK:-__BUILD_NETWORK__}"
+export BUILD_NETWORK="$build_network"
+
+dev_compose() {
+  docker compose --project-name "$dev_project" --file "$compose_base" --file "$compose_dev" "$@"
+}
+
+prod_compose() {
+  docker compose --project-name "$prod_project" --file "$compose_base" --file "$compose_prod" "$@"
+}
+
+cleanup() {
+  rm -f "$api_probe" "$web_probe"
+  if [ -n "$watch_pid" ]; then
+    kill -TERM "$watch_pid" 2>/dev/null || true
+    wait "$watch_pid" 2>/dev/null || true
+  fi
+  API_IMAGE="$api_image" WEB_IMAGE="$web_image" PROD_WEB_PORT=0 prod_compose down --remove-orphans >/dev/null 2>&1 || true
+  API_PORT=0 WEB_PORT=0 dev_compose down --remove-orphans >/dev/null 2>&1 || true
+  rm -f "$watch_log"
+}
+trap cleanup EXIT HUP INT TERM
+
+for command in docker curl; do
+  command -v "$command" >/dev/null 2>&1 || {
+    echo "missing required command: $command" >&2
+    exit 1
+  }
+done
+
+docker compose version >/dev/null
+docker info >/dev/null
+echo "Docker context: $(docker context show)"
+
+export API_PORT=0 WEB_PORT=0
+dev_compose config >/dev/null
+dev_compose up --build --detach --wait --wait-timeout 180
+
+api_port="$(dev_compose port api 8080 | head -n 1 | sed 's/.*://')"
+web_port="$(dev_compose port web 5173 | head -n 1 | sed 's/.*://')"
+test -n "$api_port"
+test -n "$web_port"
+
+dev_compose exec -T api sh -c 'test -f /app/go.mod && test -d /go/pkg/mod/github.com/chendefine/ginx@__GINX_VERSION__'
+dev_compose exec -T web sh -c 'test -f /app/package.json && test -d /app/node_modules/react'
+curl --fail --silent --show-error "http://127.0.0.1:$api_port/health" | grep -q '"status":"ok"'
+curl --fail --silent --show-error "http://127.0.0.1:$web_port/api/health" | grep -q '"status":"ok"'
+
+api_container="$(dev_compose ps --quiet api)"
+test -n "$api_container"
+api_started="$(docker inspect "$api_container" --format '{{.State.StartedAt}}')"
+COMPOSE_MENU=false dev_compose up --watch >"$watch_log" 2>&1 &
+watch_pid=$!
+
+attempt=0
+until grep -q 'Watch enabled' "$watch_log"; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 30 ] || ! kill -0 "$watch_pid" 2>/dev/null; then
+    tail -n 100 "$watch_log" >&2
+    echo "Compose Watch did not become ready" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+printf 'api-watch-probe\n' >"$api_probe"
+printf 'web-watch-probe\n' >"$web_probe"
+
+attempt=0
+until dev_compose exec -T api test -f /app/.compose-watch-probe >/dev/null 2>&1 \
+  && dev_compose exec -T web test -f /app/.compose-watch-probe >/dev/null 2>&1; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 30 ]; then
+    tail -n 100 "$watch_log" >&2
+    echo "Compose Watch did not synchronize source probes" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+attempt=0
+until [ "$(docker inspect "$api_container" --format '{{.State.StartedAt}}')" != "$api_started" ]; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 30 ]; then
+    tail -n 100 "$watch_log" >&2
+    echo "Compose Watch did not restart the API" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+rm -f "$api_probe" "$web_probe"
+attempt=0
+until current_api_port="$(dev_compose port api 8080 | head -n 1 | sed 's/.*://')" \
+  && [ -n "$current_api_port" ] \
+  && curl --fail --silent "http://127.0.0.1:$current_api_port/health" | grep -q '"status":"ok"'; do
+  attempt=$((attempt + 1))
+  if [ "$attempt" -ge 30 ]; then
+    tail -n 100 "$watch_log" >&2
+    echo "API did not become healthy after the Watch restart" >&2
+    exit 1
+  fi
+  sleep 1
+done
+api_port="$current_api_port"
+kill -TERM "$watch_pid" 2>/dev/null || true
+wait "$watch_pid" 2>/dev/null || true
+watch_pid=""
+dev_compose down --remove-orphans
+
+docker build --network="$build_network" --target runtime --tag "$api_image" apps/api
+docker build --network="$build_network" --target runtime --tag "$web_image" apps/web
+
+export API_IMAGE="$api_image" WEB_IMAGE="$web_image" PROD_WEB_PORT=0
+prod_compose config >/dev/null
+prod_compose up --detach --wait --wait-timeout 180
+prod_web_port="$(prod_compose port web 80 | head -n 1 | sed 's/.*://')"
+test -n "$prod_web_port"
+curl --fail --silent --show-error "http://127.0.0.1:$prod_web_port/" >/dev/null
+curl --fail --silent --show-error "http://127.0.0.1:$prod_web_port/api/health" | grep -q '"status":"ok"'
+prod_compose exec -T web wget -q -O - http://api:8080/health | grep -q '"status":"ok"'
+
+echo "Container verification passed"

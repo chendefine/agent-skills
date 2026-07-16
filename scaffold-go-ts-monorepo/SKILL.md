@@ -17,10 +17,30 @@ Read [references/scaffolding.md](references/scaffolding.md) before running or ch
 
 ## Scaffold a new repository
 
-Prefer the bundled initializer for a new, absent target directory:
+Prefer the bundled initializer for a new target. It stages and validates the complete scaffold beside an absent target before publishing it:
 
 ```bash
 python scripts/scaffold.py --target /path/to/new-project --go-module github.com/acme/new-project/apps/api
+```
+
+For an existing empty non-Git directory, require the explicit guarded handoff:
+
+```bash
+python scripts/scaffold.py \
+  --target /path/to/empty-directory \
+  --into-empty-directory \
+  --name example-admin \
+  --title "Example Admin"
+```
+
+For an existing clean Git root whose only directory entry is `.git`, use the initializer's staged handoff instead of manually copying a partial scaffold:
+
+```bash
+python scripts/scaffold.py \
+  --target /path/to/empty-git-root \
+  --into-empty-git-root \
+  --name example-admin \
+  --title "Example Admin"
 ```
 
 Run `--dry-run` first when inputs or prerequisites are uncertain. Let the script invoke official Vite and shadcn CLIs, generate manifests and lockfiles, render the reusable backend and deployment assets, generate both OpenAPI consumers, and run `task check`. Do not replace those steps with copied frontend scaffolds or fabricated dependency state.
@@ -32,6 +52,8 @@ Use the manual workflow below for an existing repository, a non-default topology
 1. Inspect the repository before editing.
    - Read applicable `AGENTS.md` files and existing manifests, lockfiles, CI, container, contract, deployment, and task-runner configuration.
    - Determine whether the task is greenfield scaffolding or an in-place reorganization.
+   - Treat an existing directory with no entries as a guarded greenfield target; use `--into-empty-directory`. Never silently reinterpret an existing path as safe to replace.
+   - Treat a clean root containing only `.git` as a special greenfield target; use `--into-empty-git-root`. Never use that path when any user file or Git status entry exists.
    - Inspect `git status`, including staged files, before replacing generated output or configuration.
    - Confirm executable identity as well as version for `go`, Node.js, pnpm, Docker Compose, and Go Task. Do not assume a command named `task` is Go Task; run a harmless Taskfile-aware command such as `task --list` once a Taskfile exists.
    - Inspect `docker context show` and rendered mount sources when container development is in scope. A local-looking CLI path does not prove that the Docker daemon can read it.
@@ -59,6 +81,7 @@ Use the manual workflow below for an existing repository, a non-default topology
    - Create the Go module, executable entry point, and only the internal packages required by current behavior.
    - Pin Go generators with the module's supported tool mechanism, remove superseded tool declarations, and run `go mod tidy` after runtime imports and generated code have settled.
    - Create the TypeScript application with feature-based business code and app-local generated API code.
+   - For TypeScript 6 path aliases, keep `paths` entries relative to each `tsconfig` and omit the deprecated `baseUrl`; do not silence the migration with `ignoreDeprecations`.
    - Create greenfield React code with the official Vite CLI, then initialize shadcn with its official CLI. Treat generated shadcn components as source, but do not bundle or copy a stale Vite/shadcn application skeleton into the skill.
    - Add stable root task commands after native Go and TypeScript commands work.
    - Make `gen:check` independent of an existing Git commit. In a new repository, snapshot tracked outputs before regeneration and compare every generated file afterward; plain `git diff` does not detect untracked output.
@@ -69,13 +92,15 @@ Use the manual workflow below for an existing repository, a non-default topology
 
 5. Verify the scaffold proportionally.
    - Inspect the final tree and confirm module, workspace, contract, generated-output, Compose, and Docker context paths agree.
+   - Run `python scripts/test_scaffold.py` after changing the initializer or its target-safety behavior.
    - Run formatters and configuration parsers before broader checks.
    - Run generation, lint, test, build, and the aggregate `task check` command when available.
    - Render each supported Compose combination from every documented entry directory, including the repository root and the directory containing `compose.yaml` when both are supported.
    - Build every supported Docker target with its configured network policy. Distinguish dependency-download failures from Dockerfile or compiler failures before changing repository defaults.
+   - When a development container sees missing or outdated dependencies, prove whether the development image contains the current dependencies before changing a Dockerfile or proxy. Inspect named-volume age and contents, and use the project-scoped `task dev:reset` only after confirming stale disposable caches.
    - Start the real Compose stack with the documented command, inspect container working directories and mounts, wait for health, and exercise the API both directly and through the web proxy. Configuration rendering alone is insufficient.
    - If source bind mounts are used, verify a sentinel file such as `go.mod` or `package.json` inside the running container. If the rendered source is correct but the target is empty, treat it as a daemon/CLI filesystem visibility problem and use the container reference diagnostics.
-   - Exercise Compose Watch when it is the documented development loop; confirm watch mode starts and that dependency-file changes rebuild rather than merely sync.
+   - Exercise Compose Watch when it is the documented development loop; use generated `task verify:containers` when Docker is available, and confirm watch mode starts, source changes sync/restart, and dependency-file changes select rebuild.
    - Verify the chosen generated-code policy: either regenerate tracked artifacts and require a clean diff, or generate untracked artifacts before every consuming build.
    - Validate CI syntax and confirm path filters cover shared contracts, lockfiles, root tooling, Docker inputs, and workflow files.
    - Report skipped checks and missing prerequisites explicitly.
@@ -110,4 +135,4 @@ Use the manual workflow below for an existing repository, a non-default topology
 
 ## Hand off the result
 
-Summarize whether the bundled initializer or manual workflow was used, the selected parameters and version overrides, generated-code lifecycle, source synchronization model, build contexts and networking, entry commands, and validation results. Identify only unresolved external values such as module path, registry, domains, credentials, or daemon path-sharing requirements.
+Summarize whether the bundled initializer used an absent, empty-directory, or empty-Git-root target, or whether the manual workflow was used. Include the selected slug, display title, HTML language, parameters and version overrides, generated-code lifecycle, source synchronization model, build contexts and networking, cache resets, entry commands, and validation results. Identify only unresolved external values such as a placeholder module path, registry, domains, credentials, or daemon path-sharing requirements.

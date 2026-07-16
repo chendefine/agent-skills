@@ -123,6 +123,8 @@ Keep the generated transport schema/client in `api/generated` and authentication
 
 For greenfield scaffolding, create the Vite React/TypeScript application and initialize shadcn with their official CLIs before adding handwritten API integration. Do not copy a previously generated frontend skeleton, dependency manifest, lockfile, or shadcn component into reusable assets.
 
+The validated baseline uses TypeScript 6.0. Keep alias targets such as `"@/*": ["./src/*"]` relative to the `tsconfig` that declares them. TypeScript 6 deprecates `baseUrl`; omit it when relative `paths` entries are sufficient instead of suppressing the diagnostic with `ignoreDeprecations`.
+
 ## Go API boundary
 
 Start with the stable Go boundaries and add packages only as behavior requires them:
@@ -257,7 +259,7 @@ Assume workflows run independently and do not share a filesystem. Transfer image
 
 Give each example file one scope:
 
-- Use root `.env.example` for Compose wiring and cross-service values.
+- Use root `.env.example` and root `.env` as the sole owners of Compose wiring and cross-service values. Make stable Task commands run from the repository root; when documenting direct Compose commands from `deploy/compose`, pass `--env-file ../../.env` explicitly.
 - Use `apps/web/.env.example` only for browser-build variables.
 - Use `apps/api/.env.example` only for API variables used outside Compose or documented at the application boundary.
 - Avoid defining the same variable with conflicting defaults in multiple files.
@@ -270,6 +272,7 @@ Expose stable root commands through Taskfile or the repository's chosen equivale
 
 ```text
 task dev         Start the local web, API, and database environment
+task env:init    Create the root .env without overwriting one
 task gen         Regenerate contract-derived code
 task gen:check   Verify generated outputs follow the selected lifecycle
 task migrate     Apply versioned database migrations
@@ -277,6 +280,7 @@ task lint        Lint both toolchain domains
 task test        Test both toolchain domains
 task build       Build applications or images
 task check       Run the complete local/CI quality gate
+task verify:containers  Smoke-test development, Watch, and runtime containers
 ```
 
 Make commands thin wrappers around native Go, pnpm, code-generation, and Compose commands. Make CI call the same entry points instead of maintaining a second command graph.
